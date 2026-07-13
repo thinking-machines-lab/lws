@@ -175,22 +175,15 @@ func (r *LeaderWorkerSetReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	if leaderSts == nil {
 		// An event is logged to track sts creation.
 		r.Record.Eventf(lws, revision, corev1.EventTypeNormal, GroupsProgressing, Create, fmt.Sprintf("Created leader statefulset %s", lws.Name))
-	} else if !lwsUpdated {
-		oldPartition, err := leaderStsUpdatePartition(leaderSts)
-		if err != nil {
-			log.Error(err, "Reading update partition from leader statefulset")
-			return ctrl.Result{}, err
+	} else if oldPartition := leaderStsUpdatePartition(ctx, leaderSts); !lwsUpdated && partition != oldPartition {
+		// An event is logged to track update progress.
+		var updateMsg string
+		if oldPartition-1 == partition {
+			updateMsg = fmt.Sprintf("Updating replica %d", partition)
+		} else {
+			updateMsg = fmt.Sprintf("Updating replicas %d to %d (inclusive)", partition, oldPartition-1)
 		}
-		if partition != oldPartition {
-			// An event is logged to track update progress.
-			var updateMsg string
-			if oldPartition-1 == partition {
-				updateMsg = fmt.Sprintf("Updating replica %d", partition)
-			} else {
-				updateMsg = fmt.Sprintf("Updating replicas %d to %d (inclusive)", partition, oldPartition-1)
-			}
-			r.Record.Eventf(lws, revision, corev1.EventTypeNormal, GroupsUpdating, Update, updateMsg)
-		}
+		r.Record.Eventf(lws, revision, corev1.EventTypeNormal, GroupsUpdating, Update, updateMsg)
 	}
 
 	// With rollout-via-delete enabled, rolling updates are driven by deleting stale
@@ -198,7 +191,7 @@ func (r *LeaderWorkerSetReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	// already carrying the target revision so that recreated pods pick up the new
 	// template rather than racing against the template update applied above.
 	if revisionKey := revisionutils.GetRevisionKey(revision); rolloutViaDelete(lws) && leaderSts != nil && revisionutils.GetRevisionKey(leaderSts) == revisionKey {
-		if err := r.deleteLeaderPodsForUpdate(ctx, lws, revisionKey, partition, replicas); err != nil {
+		if err := r.deleteLeaderPodsForUpdate(ctx, lws, leaderSts, revisionKey, partition, replicas); err != nil {
 			log.Error(err, "Deleting stale leader pods for rolling update")
 			return ctrl.Result{}, err
 		}
@@ -357,10 +350,7 @@ func (r *LeaderWorkerSetReconciler) rollingUpdateParameters(ctx context.Context,
 		return partition, wantReplicas(lwsReplicas), nil
 	}
 
-	partition, err := leaderStsUpdatePartition(sts)
-	if err != nil {
-		return 0, 0, err
-	}
+	partition := leaderStsUpdatePartition(ctx, sts)
 	rollingUpdateCompleted := partition == 0 && stsReplicas == lwsReplicas
 	// Case 3:
 	// In normal cases, return the values directly.
@@ -647,7 +637,10 @@ func (r *LeaderWorkerSetReconciler) getReplicaStates(ctx context.Context, lws *l
 		}
 
 		leaderUpdated := revisionutils.GetRevisionKey(&sortedPods[idx]) == revisionKey
-		leaderReady := podutils.PodRunningAndReady(sortedPods[idx])
+		// A terminating leader can still report Ready during its grace period; counting
+		// it as available would let the rolling update consume the full maxUnavailable
+		// budget on top of it and overshoot the allowed unavailability.
+		leaderReady := podutils.PodRunningAndReady(sortedPods[idx]) && sortedPods[idx].DeletionTimestamp == nil
 
 		if noWorkerSts {
 			states[idx] = replicaState{
@@ -683,18 +676,26 @@ func rolloutViaDelete(lws *leaderworkerset.LeaderWorkerSet) bool {
 // modes on a live object seamless). For statefulsets created by pre-fork controller
 // versions the annotation does not exist yet, so fall back to the rollingUpdate
 // partition field; 0 (the at-rest value) otherwise.
-func leaderStsUpdatePartition(sts *appsv1.StatefulSet) (int32, error) {
+//
+// A malformed annotation (an external edit; the controller always writes an integer)
+// must not wedge reconciliation, so it degrades to the most conservative window,
+// spec.replicas, under which no group may update. The stored partition only enforces
+// monotonicity: the effective partition is recomputed from live pod state and the SSA
+// in the same reconcile rewrites the annotation, so this self-heals without ever
+// exceeding the maxUnavailable budget.
+func leaderStsUpdatePartition(ctx context.Context, sts *appsv1.StatefulSet) int32 {
 	if v, ok := sts.Annotations[leaderworkerset.UpdatePartitionAnnotationKey]; ok {
 		p, err := strconv.ParseInt(v, 10, 32)
 		if err != nil {
-			return 0, fmt.Errorf("parsing %s annotation value %q of statefulset %s: %w", leaderworkerset.UpdatePartitionAnnotationKey, v, sts.Name, err)
+			ctrl.LoggerFrom(ctx).Error(err, "Malformed update-partition annotation, falling back to spec.replicas", "statefulset", klog.KObj(sts), "value", v)
+			return *sts.Spec.Replicas
 		}
-		return int32(p), nil
+		return int32(p)
 	}
 	if sts.Spec.UpdateStrategy.RollingUpdate != nil && sts.Spec.UpdateStrategy.RollingUpdate.Partition != nil {
-		return *sts.Spec.UpdateStrategy.RollingUpdate.Partition, nil
+		return *sts.Spec.UpdateStrategy.RollingUpdate.Partition
 	}
-	return 0, nil
+	return 0
 }
 
 // deleteLeaderPodsForUpdate deletes leader pods that are inside the update window
@@ -709,7 +710,7 @@ func leaderStsUpdatePartition(sts *appsv1.StatefulSet) (int32, error) {
 // clusters). Deletion is level-triggered: the window is recomputed from live state on
 // every reconcile, so the group-level maxUnavailable budget encoded in the partition
 // is never exceeded.
-func (r *LeaderWorkerSetReconciler) deleteLeaderPodsForUpdate(ctx context.Context, lws *leaderworkerset.LeaderWorkerSet, revisionKey string, partition, replicas int32) error {
+func (r *LeaderWorkerSetReconciler) deleteLeaderPodsForUpdate(ctx context.Context, lws *leaderworkerset.LeaderWorkerSet, leaderSts *appsv1.StatefulSet, revisionKey string, partition, replicas int32) error {
 	if partition >= replicas {
 		return nil
 	}
@@ -729,6 +730,11 @@ func (r *LeaderWorkerSetReconciler) deleteLeaderPodsForUpdate(ctx context.Contex
 		if pod.DeletionTimestamp != nil || revisionutils.GetRevisionKey(pod) == revisionKey {
 			continue
 		}
+		// Labels are mutable; only delete pods actually controlled by the leader
+		// statefulset.
+		if ref := metav1.GetControllerOfNoCopy(pod); ref == nil || ref.UID != leaderSts.UID {
+			continue
+		}
 		index, err := strconv.Atoi(pod.Labels[leaderworkerset.GroupIndexLabelKey])
 		if err != nil {
 			return fmt.Errorf("parsing group index of leader pod %s: %w", pod.Name, err)
@@ -736,8 +742,10 @@ func (r *LeaderWorkerSetReconciler) deleteLeaderPodsForUpdate(ctx context.Contex
 		if int32(index) < partition || int32(index) >= replicas {
 			continue
 		}
-		if err := r.Delete(ctx, pod); err != nil {
-			if apierrors.IsNotFound(err) {
+		// The UID precondition guards against deleting a same-name replacement pod that
+		// the statefulset controller already recreated while our cache was stale.
+		if err := r.Delete(ctx, pod, client.Preconditions{UID: &pod.UID}); err != nil {
+			if apierrors.IsNotFound(err) || apierrors.IsConflict(err) {
 				continue
 			}
 			return err

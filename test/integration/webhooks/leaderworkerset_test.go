@@ -497,6 +497,16 @@ var _ = ginkgo.Describe("leaderworkerset defaulting, creation and update", func(
 			},
 			lwsCreationShouldFail: false,
 		}),
+		ginkgo.Entry("set replica to 0 with literal zero maxUnavailable and maxSurge should be allowed", &testValidationCase{
+			makeLeaderWorkerSet: func(ns *corev1.Namespace) *wrappers.LeaderWorkerSetWrapper {
+				lws := wrappers.BuildLeaderWorkerSet(ns.Name)
+				lws.Spec.Replicas = ptr.To(int32(0))
+				lws.Spec.RolloutStrategy.RollingUpdateConfiguration.MaxUnavailable = intstr.FromInt32(0)
+				lws.Spec.RolloutStrategy.RollingUpdateConfiguration.MaxSurge = intstr.FromInt32(0)
+				return lws
+			},
+			lwsCreationShouldFail: false,
+		}),
 		// A percentage maxUnavailable that scales to zero at the current replica count is
 		// allowed (mirroring Deployment validation on raw values); the controller bumps
 		// the resolved budget to 1 so the rolling update cannot stall.

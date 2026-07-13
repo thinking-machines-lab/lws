@@ -176,7 +176,8 @@ func (r *LeaderWorkerSetWebhook) generalValidate(lws *v1.LeaderWorkerSet) field.
 	// maxUnavailable=20% with 3 replicas) are allowed: the controller bumps the
 	// resolved maxUnavailable to 1, like the Deployment controller's
 	// ResolveFenceposts, and replicas may change via the scale subresource anyway.
-	if getIntOrPercentValue(maxUnavailable) == 0 && getIntOrPercentValue(maxSurge) == 0 {
+	// Zero-replica objects are exempt as before, so pre-existing ones stay updatable.
+	if getIntOrPercentValue(maxUnavailable) == 0 && getIntOrPercentValue(maxSurge) == 0 && *lws.Spec.Replicas != 0 {
 		// Both MaxSurge and MaxUnavailable cannot be zero.
 		allErrs = append(allErrs, field.Invalid(maxUnavailablePath, maxUnavailable, "must not be 0 when `maxSurge` is 0"))
 	}
