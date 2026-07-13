@@ -2027,11 +2027,11 @@ var _ = ginkgo.Describe("LeaderWorkerSet controller", func() {
 						testing.ExpectLeaderWorkerSetUnavailable(ctx, k8sClient, lws, "All replicas are ready")
 						testing.ExpectLeaderWorkerSetProgressing(ctx, k8sClient, lws, "Replicas are progressing")
 						testing.ExpectLeaderWorkerSetUpgradeInProgress(ctx, k8sClient, lws, "Rolling Upgrade is in progress")
-						// Partition will transit from 4 to 3.
-						testing.ExpectStatefulsetPartitionEqualTo(ctx, k8sClient, lws, 3)
-						// Groups 1, 2 are still deleted from the first update; groups 4, 5 are
-						// deleted again for the second revision.
-						testing.ExpectLeaderWorkerSetStatusReplicas(ctx, k8sClient, lws, 1, 0)
+						// Groups 1, 2 are still down from the first update, which exhausts the
+						// availability budget: the ready groups 4, 5 are kept at the previous
+						// revision (and the partition holds) until availability recovers.
+						testing.ExpectStatefulsetPartitionEqualTo(ctx, k8sClient, lws, 4)
+						testing.ExpectLeaderWorkerSetStatusReplicas(ctx, k8sClient, lws, 3, 0)
 						testing.ExpectRevisions(ctx, k8sClient, lws, 3)
 					},
 				},
@@ -2203,9 +2203,13 @@ var _ = ginkgo.Describe("LeaderWorkerSet controller", func() {
 						testing.DeleteWorkerPods(ctx, k8sClient, lws)
 					},
 					checkLWSState: func(lws *leaderworkerset.LeaderWorkerSet) {
-						var leaderPod corev1.Pod
-						gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: lws.Name + "-3", Namespace: lws.Namespace}, &leaderPod)).To(gomega.Succeed())
-						gomega.Consistently(leaderPod.DeletionTimestamp == nil, testing.Timeout, testing.Interval).Should(gomega.BeTrue())
+						gomega.Consistently(func() bool {
+							var leaderPod corev1.Pod
+							if err := k8sClient.Get(ctx, types.NamespacedName{Name: lws.Name + "-3", Namespace: lws.Namespace}, &leaderPod); err != nil {
+								return false
+							}
+							return leaderPod.DeletionTimestamp == nil
+						}, testing.ConsistentTimeout, testing.Interval).Should(gomega.BeTrue())
 					},
 				},
 				{

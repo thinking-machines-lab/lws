@@ -104,6 +104,12 @@ const (
 	// controller's RollingUpdate machinery, which recreates leaders one at a time
 	// unless the alpha MaxUnavailableStatefulSet feature gate is enabled.
 	// Must be "true" or "false"; defaults to "false".
+	//
+	// Downgrade safety: upstream controller builds dereference the leader statefulset's
+	// rollingUpdate config unconditionally and panic on the OnDelete statefulsets this
+	// mode creates. Before downgrading to an upstream build, set this annotation to
+	// "false" on every LeaderWorkerSet and wait for the leader statefulsets to return
+	// to the RollingUpdate strategy.
 	RolloutViaDeleteAnnotationKey string = "leaderworkerset.sigs.k8s.io/rollout-via-delete"
 
 	// UpdatePartition is added to the leader statefulset to track the boundary of an
