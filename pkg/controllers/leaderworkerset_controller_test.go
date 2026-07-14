@@ -18,6 +18,7 @@ package controllers
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
@@ -1322,6 +1323,75 @@ func TestDeleteLeaderPodsForUpdate(t *testing.T) {
 	want := map[string]bool{"test-sample-0": true, "test-sample-2": true, "test-sample-3": true, "test-sample-4": true, "decoy": true}
 	if diff := cmp.Diff(want, remaining); diff != "" {
 		t.Errorf("unexpected remaining leader pods: %s", diff)
+	}
+}
+
+// Worker statefulset slots are derived from the immutable statefulset name; a foreign
+// statefulset with a colliding group-index label must not displace the legitimate entry
+// and flip its (ready) group to unavailable.
+func TestGetReplicaStatesIgnoresLabelCollidingStatefulSets(t *testing.T) {
+	lws := wrappers.BuildBasicLeaderWorkerSet("test-sample", "default").
+		Replica(2).
+		Size(2).
+		WorkerTemplateSpec(wrappers.MakeWorkerPodSpec()).Obj()
+	leaderSts := &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{Name: lws.Name, Namespace: lws.Namespace, UID: "leader-sts-uid"},
+	}
+
+	makeWorkerSts := func(groupIndex int, ownerUID types.UID) *appsv1.StatefulSet {
+		return &appsv1.StatefulSet{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      fmt.Sprintf("%s-%d", lws.Name, groupIndex),
+				Namespace: lws.Namespace,
+				Labels: map[string]string{
+					leaderworkerset.SetNameLabelKey:    lws.Name,
+					leaderworkerset.GroupIndexLabelKey: strconv.Itoa(groupIndex),
+					leaderworkerset.RevisionKey:        "rev-old",
+				},
+				OwnerReferences: []metav1.OwnerReference{{
+					APIVersion: "v1",
+					Kind:       "Pod",
+					Name:       fmt.Sprintf("%s-%d", lws.Name, groupIndex),
+					UID:        ownerUID,
+					Controller: ptr.To(true),
+				}},
+			},
+			Spec: appsv1.StatefulSetSpec{Replicas: ptr.To[int32](1)},
+			Status: appsv1.StatefulSetStatus{
+				AvailableReplicas: 1,
+				CurrentRevision:   "same",
+				UpdateRevision:    "same",
+			},
+		}
+	}
+
+	pod0 := ownedByStatefulSet(makeTestLeaderPod(lws.Name, lws.Namespace, 0, "rev-old", true), lws.Name, leaderSts.UID)
+	pod0.UID = "pod-0-uid"
+	pod1 := ownedByStatefulSet(makeTestLeaderPod(lws.Name, lws.Namespace, 1, "rev-old", true), lws.Name, leaderSts.UID)
+	pod1.UID = "pod-1-uid"
+
+	// The decoy carries group-index 0 but is not named like a worker statefulset of
+	// this lws; it sorts after the real one ("zzz-decoy" > "test-sample-0") and would
+	// win the slot if placement trusted the label.
+	decoy := makeWorkerSts(0, "unrelated-uid")
+	decoy.Name = "zzz-decoy"
+
+	client := fake.NewClientBuilder().WithObjects(
+		pod0, pod1,
+		makeWorkerSts(0, pod0.UID),
+		makeWorkerSts(1, pod1.UID),
+		decoy,
+	).Build()
+	reconciler := &LeaderWorkerSetReconciler{Client: client, Record: fakeEventRecorder{}}
+
+	states, _, err := reconciler.getReplicaStates(context.Background(), lws, leaderSts, 2, "rev-new")
+	if err != nil {
+		t.Fatalf("getReplicaStates() unexpected error: %v", err)
+	}
+	for idx, state := range states {
+		if !state.ready {
+			t.Errorf("states[%d].ready=false, want true", idx)
+		}
 	}
 }
 

@@ -416,7 +416,7 @@ func (r *LeaderWorkerSetReconciler) SSAWithStatefulset(ctx context.Context, lws 
 }
 
 // updates the condition of the leaderworkerset to either Progressing or Available.
-func (r *LeaderWorkerSetReconciler) updateConditions(ctx context.Context, lws *leaderworkerset.LeaderWorkerSet, revisionKey string) (bool, bool, error) {
+func (r *LeaderWorkerSetReconciler) updateConditions(ctx context.Context, lws *leaderworkerset.LeaderWorkerSet, leaderSts *appsv1.StatefulSet, revisionKey string) (bool, bool, error) {
 	log := ctrl.LoggerFrom(ctx)
 	podSelector := client.MatchingLabels(map[string]string{
 		leaderworkerset.SetNameLabelKey:     lws.Name,
@@ -436,9 +436,16 @@ func (r *LeaderWorkerSetReconciler) updateConditions(ctx context.Context, lws *l
 
 	// Iterate through all leaderPods.
 	for _, pod := range leaderPodList.Items {
+		// Labels are mutable: pods not controlled by the leader statefulset must not
+		// contribute to status, and a label the controller cannot parse must not wedge
+		// reconciliation.
+		if ref := metav1.GetControllerOfNoCopy(&pod); ref == nil || ref.UID != leaderSts.UID {
+			continue
+		}
 		index, err := strconv.Atoi(pod.Labels[leaderworkerset.GroupIndexLabelKey])
 		if err != nil {
-			return false, false, err
+			log.Error(err, "Skipping leader pod with unparseable group index", "pod", klog.KObj(&pod))
+			continue
 		}
 
 		var sts appsv1.StatefulSet
@@ -555,7 +562,7 @@ func (r *LeaderWorkerSetReconciler) updateStatus(ctx context.Context, lws *leade
 	}
 
 	// check if an update is needed
-	updateConditions, updateDone, err := r.updateConditions(ctx, lws, revisionKey)
+	updateConditions, updateDone, err := r.updateConditions(ctx, lws, sts, revisionKey)
 	if err != nil {
 		return false, err
 	}
@@ -614,7 +621,14 @@ func (r *LeaderWorkerSetReconciler) getReplicaStates(ctx context.Context, lws *l
 		return nil, nil, err
 	}
 	sortedSts := utils.SortByIndex(func(sts appsv1.StatefulSet) (int, error) {
-		return strconv.Atoi(sts.Labels[leaderworkerset.GroupIndexLabelKey])
+		// Derive the slot from the statefulset name (unique, immutable) rather than the
+		// mutable group-index label, so a label-colliding statefulset cannot displace
+		// the legitimate entry and flip its group to unavailable.
+		parent, ordinal := statefulsetutils.GetParentNameAndOrdinal(sts.Name)
+		if parent != lws.Name {
+			return 0, fmt.Errorf("statefulset %s is not a worker statefulset of %s", sts.Name, lws.Name)
+		}
+		return ordinal, nil
 	}, stsList.Items, int(stsReplicas))
 
 	// Once size==1, no worker statefulSets will be created.

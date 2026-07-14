@@ -54,11 +54,15 @@ kubectl get sts -A -l leaderworkerset.sigs.k8s.io/name \
 
 Upstream controller builds dereference the leader statefulset's `rollingUpdate` config
 unconditionally and will panic-loop on the `OnDelete` statefulsets this mode creates. If
-a downgrade already happened, recover per statefulset with:
+a downgrade already happened, recover per statefulset — carrying the tracked partition
+forward so an in-flight or canary-partitioned rollout does not suddenly open its whole
+update window:
 
 ```bash
+P=$(kubectl get sts <lws-name> -n <ns> \
+  -o jsonpath='{.metadata.annotations.leaderworkerset\.sigs\.k8s\.io/update-partition}')
 kubectl patch sts <lws-name> -n <ns> --type=merge -p \
-  '{"spec":{"updateStrategy":{"type":"RollingUpdate","rollingUpdate":{"partition":0}}}}'
+  "{\"spec\":{\"updateStrategy\":{\"type\":\"RollingUpdate\",\"rollingUpdate\":{\"partition\":${P:-0}}}}}"
 ```
 
 ## Other divergences from upstream
