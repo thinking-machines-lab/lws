@@ -40,6 +40,9 @@ import (
 const (
 	Timeout  = 2 * time.Minute
 	Interval = time.Millisecond * 250
+	// ConsistentTimeout is the observation window for gomega.Consistently checks; the
+	// full Timeout would add minutes per assertion.
+	ConsistentTimeout = 5 * time.Second
 )
 
 func ExpectLeaderSetExist(ctx context.Context, lws *leaderworkerset.LeaderWorkerSet, k8sClient client.Client) {
@@ -437,7 +440,21 @@ func ExpectStatefulsetPartitionEqualTo(ctx context.Context, k8sClient client.Cli
 		if err := k8sClient.Get(ctx, types.NamespacedName{Name: lws.Name, Namespace: lws.Namespace}, &sts); err != nil {
 			return -1
 		}
-		return *sts.Spec.UpdateStrategy.RollingUpdate.Partition
+		// The rolling-update partition is tracked in an annotation in both rollout
+		// modes (with rollout-via-delete, OnDelete forbids the rollingUpdate config).
+		p, err := strconv.Atoi(sts.Annotations[leaderworkerset.UpdatePartitionAnnotationKey])
+		if err != nil {
+			return -1
+		}
+		// In statefulset-driven mode the partition also drives the statefulset
+		// controller through the rollingUpdate config; it must match the annotation.
+		if sts.Spec.UpdateStrategy.Type == appsv1.RollingUpdateStatefulSetStrategyType {
+			ru := sts.Spec.UpdateStrategy.RollingUpdate
+			if ru == nil || ru.Partition == nil || *ru.Partition != int32(p) {
+				return -1
+			}
+		}
+		return int32(p)
 	}, Timeout, Interval).Should(gomega.Equal(partition))
 }
 

@@ -51,6 +51,15 @@ func Test_SortByIndex(t *testing.T) {
 			indexFunc: func(index int) (int, error) { return index, nil },
 			want:      []int{0, 0, 2, 3},
 		},
+		{
+			// Indexes come from mutable labels; a negative value must be skipped
+			// instead of panicking.
+			name:      "negative inputs are ignored",
+			inputs:    []int{-1, 1, -1000},
+			length:    3,
+			indexFunc: func(index int) (int, error) { return index, nil },
+			want:      []int{0, 1, 0},
+		},
 	}
 
 	for _, tc := range testCases {

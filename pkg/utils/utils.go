@@ -61,7 +61,9 @@ func SortByIndex[T appsv1.StatefulSet | corev1.Pod | int](indexFunc func(T) (int
 			continue
 		}
 
-		if index >= length {
+		// Indexes come from mutable labels; an out-of-range value (including a
+		// negative one, which would panic) must not be trusted.
+		if index < 0 || index >= length {
 			continue
 		}
 		result[index] = item

@@ -18,6 +18,7 @@ package controllers
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
@@ -28,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	appsapplyv1 "k8s.io/client-go/applyconfigurations/apps/v1"
 	coreapplyv1 "k8s.io/client-go/applyconfigurations/core/v1"
@@ -99,7 +101,7 @@ func TestLeaderStatefulSetApplyConfig(t *testing.T) {
 						"leaderworkerset.sigs.k8s.io/name":                   "test-sample",
 						"leaderworkerset.sigs.k8s.io/template-revision-hash": revisionKey2,
 					},
-					Annotations: map[string]string{"leaderworkerset.sigs.k8s.io/replicas": "1"},
+					Annotations: map[string]string{"leaderworkerset.sigs.k8s.io/replicas": "1", "leaderworkerset.sigs.k8s.io/update-partition": "0"},
 				},
 				Spec: &appsapplyv1.StatefulSetSpecApplyConfiguration{
 					Replicas: ptr.To[int32](1),
@@ -167,7 +169,7 @@ func TestLeaderStatefulSetApplyConfig(t *testing.T) {
 						"leaderworkerset.sigs.k8s.io/name":                   "test-sample",
 						"leaderworkerset.sigs.k8s.io/template-revision-hash": revisionKey2,
 					},
-					Annotations: map[string]string{"leaderworkerset.sigs.k8s.io/replicas": "1"},
+					Annotations: map[string]string{"leaderworkerset.sigs.k8s.io/replicas": "1", "leaderworkerset.sigs.k8s.io/update-partition": "0"},
 				},
 				Spec: &appsapplyv1.StatefulSetSpecApplyConfiguration{
 					Replicas: ptr.To[int32](1),
@@ -236,7 +238,7 @@ func TestLeaderStatefulSetApplyConfig(t *testing.T) {
 						"leaderworkerset.sigs.k8s.io/name":                   "test-sample",
 						"leaderworkerset.sigs.k8s.io/template-revision-hash": revisionKey1,
 					},
-					Annotations: map[string]string{"leaderworkerset.sigs.k8s.io/replicas": "2"},
+					Annotations: map[string]string{"leaderworkerset.sigs.k8s.io/replicas": "2", "leaderworkerset.sigs.k8s.io/update-partition": "0"},
 				},
 				Spec: &appsapplyv1.StatefulSetSpecApplyConfiguration{
 					Replicas: ptr.To[int32](2),
@@ -303,7 +305,7 @@ func TestLeaderStatefulSetApplyConfig(t *testing.T) {
 						"leaderworkerset.sigs.k8s.io/name":                   "test-sample",
 						"leaderworkerset.sigs.k8s.io/template-revision-hash": revisionKey2,
 					},
-					Annotations: map[string]string{"leaderworkerset.sigs.k8s.io/replicas": "1"},
+					Annotations: map[string]string{"leaderworkerset.sigs.k8s.io/replicas": "1", "leaderworkerset.sigs.k8s.io/update-partition": "0"},
 				},
 				Spec: &appsapplyv1.StatefulSetSpecApplyConfiguration{
 					Replicas: ptr.To[int32](1),
@@ -370,7 +372,7 @@ func TestLeaderStatefulSetApplyConfig(t *testing.T) {
 						"leaderworkerset.sigs.k8s.io/name":                   "test-sample",
 						"leaderworkerset.sigs.k8s.io/template-revision-hash": revisionKey2,
 					},
-					Annotations: map[string]string{"leaderworkerset.sigs.k8s.io/replicas": "1"},
+					Annotations: map[string]string{"leaderworkerset.sigs.k8s.io/replicas": "1", "leaderworkerset.sigs.k8s.io/update-partition": "0"},
 				},
 				Spec: &appsapplyv1.StatefulSetSpecApplyConfiguration{
 					Replicas: ptr.To[int32](1),
@@ -407,7 +409,7 @@ func TestLeaderStatefulSetApplyConfig(t *testing.T) {
 					UpdateStrategy: appsapplyv1.StatefulSetUpdateStrategy().
 						WithType(appsv1.RollingUpdateStatefulSetStrategyType).
 						// maxSurge is capped at 1 (the value of lwsReplicas),
-						// so stsMaxUnavailableInt = 0 (lwsMaxUnavailable) + 1 (capped maxSurge) = 1.
+						// so stsMaxUnavailable = 0 (lwsMaxUnavailable) + 1 (capped maxSurge) = 1.
 						WithRollingUpdate(appsapplyv1.RollingUpdateStatefulSetStrategy().WithPartition(0).WithMaxUnavailable(intstr.FromInt32(1))),
 				},
 			},
@@ -440,7 +442,7 @@ func TestLeaderStatefulSetApplyConfig(t *testing.T) {
 						"leaderworkerset.sigs.k8s.io/name":                   "test-sample",
 						"leaderworkerset.sigs.k8s.io/template-revision-hash": revisionKey1,
 					},
-					Annotations: map[string]string{"leaderworkerset.sigs.k8s.io/replicas": "1"},
+					Annotations: map[string]string{"leaderworkerset.sigs.k8s.io/replicas": "1", "leaderworkerset.sigs.k8s.io/update-partition": "0"},
 				},
 				Spec: &appsapplyv1.StatefulSetSpecApplyConfiguration{
 					Replicas: ptr.To[int32](1),
@@ -529,7 +531,7 @@ func TestLeaderStatefulSetApplyConfig(t *testing.T) {
 						"leaderworkerset.sigs.k8s.io/name":                   "test-sample",
 						"leaderworkerset.sigs.k8s.io/template-revision-hash": revisionKey2,
 					},
-					Annotations: map[string]string{"leaderworkerset.sigs.k8s.io/replicas": "1"},
+					Annotations: map[string]string{"leaderworkerset.sigs.k8s.io/replicas": "1", "leaderworkerset.sigs.k8s.io/update-partition": "0"},
 				},
 				Spec: &appsapplyv1.StatefulSetSpecApplyConfiguration{
 					Replicas: ptr.To[int32](1),
@@ -625,7 +627,7 @@ func TestLeaderStatefulSetApplyConfig(t *testing.T) {
 						"leaderworkerset.sigs.k8s.io/name":                   "test-sample",
 						"leaderworkerset.sigs.k8s.io/template-revision-hash": revisionKey2,
 					},
-					Annotations: map[string]string{"leaderworkerset.sigs.k8s.io/replicas": "0"},
+					Annotations: map[string]string{"leaderworkerset.sigs.k8s.io/replicas": "0", "leaderworkerset.sigs.k8s.io/update-partition": "0"},
 				},
 				Spec: &appsapplyv1.StatefulSetSpecApplyConfiguration{
 					Replicas: ptr.To[int32](0),
@@ -696,7 +698,7 @@ func TestLeaderStatefulSetApplyConfig(t *testing.T) {
 						"leaderworkerset.sigs.k8s.io/name":                   "test-sample",
 						"leaderworkerset.sigs.k8s.io/template-revision-hash": revisionKey2,
 					},
-					Annotations: map[string]string{"leaderworkerset.sigs.k8s.io/replicas": "2"},
+					Annotations: map[string]string{"leaderworkerset.sigs.k8s.io/replicas": "2", "leaderworkerset.sigs.k8s.io/update-partition": "0"},
 				},
 				Spec: &appsapplyv1.StatefulSetSpecApplyConfiguration{
 					Replicas: ptr.To[int32](3), // using stsReplicas
@@ -733,7 +735,7 @@ func TestLeaderStatefulSetApplyConfig(t *testing.T) {
 					UpdateStrategy: appsapplyv1.StatefulSetUpdateStrategy().
 						WithType(appsv1.RollingUpdateStatefulSetStrategyType).
 						// maxUnavailable=1, maxSurge=50% of 2 replicas (lwsReplicas) = 1.
-						// So stsMaxUnavailableInt = 1 + 1 = 2
+						// So stsMaxUnavailable = 1 + 1 = 2
 						WithRollingUpdate(appsapplyv1.RollingUpdateStatefulSetStrategy().WithPartition(0).WithMaxUnavailable(intstr.FromInt32(2))),
 				},
 			},
@@ -1007,6 +1009,436 @@ func TestRollingUpdateParametersTemplateUpdateReclaimsSurgeWhenAllowed(t *testin
 	}
 	if replicas != 3 {
 		t.Fatalf("rollingUpdateParameters() replicas=%d, want 3", replicas)
+	}
+}
+
+// With rollout-via-delete enabled, the leader statefulset must use the OnDelete update
+// strategy (no rollingUpdate config) while still recording the partition annotation.
+func TestLeaderStatefulSetApplyConfigRolloutViaDelete(t *testing.T) {
+	lws := wrappers.BuildBasicLeaderWorkerSet("test-sample", "default").
+		Replica(2).
+		Size(2).
+		RolloutStrategy(leaderworkerset.RolloutStrategy{
+			Type: leaderworkerset.RollingUpdateStrategyType,
+			RollingUpdateConfiguration: &leaderworkerset.RollingUpdateConfiguration{
+				Partition:      ptr.To[int32](0),
+				MaxUnavailable: intstr.FromInt32(1),
+				MaxSurge:       intstr.FromInt32(0),
+			},
+		}).
+		WorkerTemplateSpec(wrappers.MakeWorkerPodSpec()).
+		RolloutViaDelete(true).Obj()
+
+	stsApplyConfig, err := constructLeaderStatefulSetApplyConfiguration(lws, 1, 2, "test-hash")
+	if err != nil {
+		t.Fatalf("constructLeaderStatefulSetApplyConfiguration() unexpected error: %v", err)
+	}
+
+	wantStrategy := appsapplyv1.StatefulSetUpdateStrategy().WithType(appsv1.OnDeleteStatefulSetStrategyType)
+	if diff := cmp.Diff(wantStrategy, stsApplyConfig.Spec.UpdateStrategy); diff != "" {
+		t.Errorf("unexpected update strategy: %s", diff)
+	}
+	if got := stsApplyConfig.Annotations[leaderworkerset.UpdatePartitionAnnotationKey]; got != "1" {
+		t.Errorf("update-partition annotation=%q, want %q", got, "1")
+	}
+}
+
+// Toggling rollout-via-delete on a live LeaderWorkerSet must not change its revision
+// key: revisions hash only the leader/worker template (and network config), so the
+// annotation can be enabled on a production object without triggering a rolling update.
+func TestRolloutViaDeleteAnnotationDoesNotChangeRevision(t *testing.T) {
+	client := fake.NewClientBuilder().Build()
+	lws := wrappers.BuildBasicLeaderWorkerSet("test-sample", "default").
+		Replica(3).
+		Size(2).
+		WorkerTemplateSpec(wrappers.MakeWorkerPodSpec()).Obj()
+
+	before, err := revisionutils.NewRevision(context.TODO(), client, lws, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	annotated := wrappers.LeaderWorkerSetWrapper{LeaderWorkerSet: *lws.DeepCopy()}
+	after, err := revisionutils.NewRevision(context.TODO(), client, annotated.RolloutViaDelete(true).Obj(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !revisionutils.EqualRevision(before, after) {
+		t.Errorf("enabling %s changed the revision: %q -> %q", leaderworkerset.RolloutViaDeleteAnnotationKey, revisionutils.GetRevisionKey(before), revisionutils.GetRevisionKey(after))
+	}
+}
+
+func makeTestLeaderPod(lwsName, namespace string, groupIndex int, revisionKey string, ready bool) *corev1.Pod {
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      lwsName + "-" + strconv.Itoa(groupIndex),
+			Namespace: namespace,
+			Labels: map[string]string{
+				leaderworkerset.SetNameLabelKey:     lwsName,
+				leaderworkerset.WorkerIndexLabelKey: "0",
+				leaderworkerset.GroupIndexLabelKey:  strconv.Itoa(groupIndex),
+				leaderworkerset.RevisionKey:         revisionKey,
+			},
+		},
+	}
+	if ready {
+		pod.Status.Phase = corev1.PodRunning
+		pod.Status.Conditions = []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}
+	}
+	return pod
+}
+
+// A percentage maxUnavailable that rounds down to zero (20% of 3 replicas) must not
+// stall the rolling update: the resolved budget is bumped to 1, mirroring the
+// Deployment controller's ResolveFenceposts.
+func TestRollingUpdateParametersPercentMaxUnavailableDoesNotStall(t *testing.T) {
+	lws := wrappers.BuildBasicLeaderWorkerSet("test-sample", "default").
+		Replica(3).
+		Size(1).
+		RolloutStrategy(leaderworkerset.RolloutStrategy{
+			Type: leaderworkerset.RollingUpdateStrategyType,
+			RollingUpdateConfiguration: &leaderworkerset.RollingUpdateConfiguration{
+				Partition:      ptr.To[int32](0),
+				MaxUnavailable: intstr.FromString("20%"),
+				MaxSurge:       intstr.FromInt32(0),
+			},
+		}).Obj()
+
+	sts := &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      lws.Name,
+			Namespace: lws.Namespace,
+			UID:       "leader-sts-uid",
+			Annotations: map[string]string{
+				leaderworkerset.ReplicasAnnotationKey:        strconv.Itoa(3),
+				leaderworkerset.UpdatePartitionAnnotationKey: strconv.Itoa(3),
+			},
+		},
+		Spec: appsv1.StatefulSetSpec{
+			Replicas: ptr.To[int32](3),
+			UpdateStrategy: appsv1.StatefulSetUpdateStrategy{
+				Type: appsv1.OnDeleteStatefulSetStrategyType,
+			},
+		},
+	}
+
+	// All three groups are ready at the old revision; the rollout has not progressed yet.
+	client := fake.NewClientBuilder().WithObjects(
+		ownedByStatefulSet(makeTestLeaderPod(lws.Name, lws.Namespace, 0, "rev-old", true), lws.Name, sts.UID),
+		ownedByStatefulSet(makeTestLeaderPod(lws.Name, lws.Namespace, 1, "rev-old", true), lws.Name, sts.UID),
+		ownedByStatefulSet(makeTestLeaderPod(lws.Name, lws.Namespace, 2, "rev-old", true), lws.Name, sts.UID),
+	).Build()
+	reconciler := &LeaderWorkerSetReconciler{Client: client, Record: fakeEventRecorder{}}
+
+	partition, replicas, err := reconciler.rollingUpdateParameters(context.Background(), lws, sts, "rev-new", false)
+	if err != nil {
+		t.Fatalf("rollingUpdateParameters() unexpected error: %v", err)
+	}
+	// Without the fencepost the rolling step would be 0 and the partition would stay at 3.
+	if partition != 2 {
+		t.Fatalf("rollingUpdateParameters() partition=%d, want 2", partition)
+	}
+	if replicas != 3 {
+		t.Fatalf("rollingUpdateParameters() replicas=%d, want 3", replicas)
+	}
+}
+
+// A terminating leader below the update window still reports Ready during its grace
+// period; it must count against the maxUnavailable budget so the rolling update pauses
+// instead of taking another group down on top of it.
+func TestRollingUpdateParametersTerminatingPodPausesWindow(t *testing.T) {
+	lws := wrappers.BuildBasicLeaderWorkerSet("test-sample", "default").
+		Replica(3).
+		Size(1).
+		RolloutStrategy(leaderworkerset.RolloutStrategy{
+			Type: leaderworkerset.RollingUpdateStrategyType,
+			RollingUpdateConfiguration: &leaderworkerset.RollingUpdateConfiguration{
+				Partition:      ptr.To[int32](0),
+				MaxUnavailable: intstr.FromInt32(1),
+				MaxSurge:       intstr.FromInt32(0),
+			},
+		}).Obj()
+
+	sts := &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      lws.Name,
+			Namespace: lws.Namespace,
+			UID:       "leader-sts-uid",
+			Annotations: map[string]string{
+				leaderworkerset.ReplicasAnnotationKey:        strconv.Itoa(3),
+				leaderworkerset.UpdatePartitionAnnotationKey: strconv.Itoa(3),
+			},
+		},
+		Spec: appsv1.StatefulSetSpec{
+			Replicas: ptr.To[int32](3),
+			UpdateStrategy: appsv1.StatefulSetUpdateStrategy{
+				Type: appsv1.OnDeleteStatefulSetStrategyType,
+			},
+		},
+	}
+
+	// Pod 0 is terminating but still Ready; pods 1 and 2 are ready at the old revision.
+	terminatingPod := ownedByStatefulSet(makeTestLeaderPod(lws.Name, lws.Namespace, 0, "rev-old", true), lws.Name, sts.UID)
+	terminatingPod.Finalizers = []string{"test.example.com/hold"}
+	client := fake.NewClientBuilder().WithObjects(
+		terminatingPod,
+		ownedByStatefulSet(makeTestLeaderPod(lws.Name, lws.Namespace, 1, "rev-old", true), lws.Name, sts.UID),
+		ownedByStatefulSet(makeTestLeaderPod(lws.Name, lws.Namespace, 2, "rev-old", true), lws.Name, sts.UID),
+	).Build()
+	if err := client.Delete(context.Background(), terminatingPod); err != nil {
+		t.Fatal(err)
+	}
+	reconciler := &LeaderWorkerSetReconciler{Client: client, Record: fakeEventRecorder{}}
+
+	partition, replicas, err := reconciler.rollingUpdateParameters(context.Background(), lws, sts, "rev-new", false)
+	if err != nil {
+		t.Fatalf("rollingUpdateParameters() unexpected error: %v", err)
+	}
+	// Without counting the terminating pod as unavailable, the partition would drop to
+	// 2 and allow a second group to go down.
+	if partition != 3 {
+		t.Fatalf("rollingUpdateParameters() partition=%d, want 3", partition)
+	}
+	if replicas != 3 {
+		t.Fatalf("rollingUpdateParameters() replicas=%d, want 3", replicas)
+	}
+}
+
+func TestLeaderStsUpdatePartition(t *testing.T) {
+	tests := []struct {
+		name          string
+		annotations   map[string]string
+		rollingUpdate *appsv1.RollingUpdateStatefulSetStrategy
+		wantPartition int32
+	}{
+		{
+			name:          "partition from annotation",
+			annotations:   map[string]string{leaderworkerset.UpdatePartitionAnnotationKey: "5"},
+			wantPartition: 5,
+		},
+		{
+			name:          "missing annotation falls back to rollingUpdate partition of pre-fork statefulsets",
+			rollingUpdate: &appsv1.RollingUpdateStatefulSetStrategy{Partition: ptr.To[int32](2)},
+			wantPartition: 2,
+		},
+		{
+			// The controller always records the partition in one of the two sources, so
+			// a statefulset with neither has been tampered with; fail safe (nothing may
+			// update) rather than open (partition 0 opens the whole window).
+			name:          "missing annotation and no rollingUpdate falls back to spec.replicas",
+			wantPartition: 4,
+		},
+		{
+			// A malformed annotation must not wedge reconciliation; it degrades to the
+			// most conservative window (spec.replicas) and is rewritten by the next SSA.
+			name:          "unparseable annotation falls back to spec.replicas",
+			annotations:   map[string]string{leaderworkerset.UpdatePartitionAnnotationKey: "not-a-number"},
+			wantPartition: 4,
+		},
+		{
+			name:          "negative annotation falls back to spec.replicas",
+			annotations:   map[string]string{leaderworkerset.UpdatePartitionAnnotationKey: "-1"},
+			wantPartition: 4,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			sts := &appsv1.StatefulSet{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-sample", Annotations: tc.annotations},
+				Spec: appsv1.StatefulSetSpec{
+					Replicas:       ptr.To[int32](4),
+					UpdateStrategy: appsv1.StatefulSetUpdateStrategy{RollingUpdate: tc.rollingUpdate},
+				},
+			}
+			if partition := leaderStsUpdatePartition(context.Background(), sts); partition != tc.wantPartition {
+				t.Fatalf("leaderStsUpdatePartition()=%d, want %d", partition, tc.wantPartition)
+			}
+		})
+	}
+}
+
+func ownedByStatefulSet(pod *corev1.Pod, name string, uid types.UID) *corev1.Pod {
+	pod.OwnerReferences = []metav1.OwnerReference{{
+		APIVersion: "apps/v1",
+		Kind:       "StatefulSet",
+		Name:       name,
+		UID:        uid,
+		Controller: ptr.To(true),
+	}}
+	return pod
+}
+
+func TestDeleteLeaderPodsForUpdate(t *testing.T) {
+	lws := wrappers.BuildBasicLeaderWorkerSet("test-sample", "default").
+		Replica(5).
+		Size(1).
+		RolloutStrategy(leaderworkerset.RolloutStrategy{
+			Type: leaderworkerset.RollingUpdateStrategyType,
+			RollingUpdateConfiguration: &leaderworkerset.RollingUpdateConfiguration{
+				Partition:      ptr.To[int32](0),
+				MaxUnavailable: intstr.FromInt32(3),
+				MaxSurge:       intstr.FromInt32(0),
+			},
+		}).Obj()
+	leaderSts := &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{Name: lws.Name, Namespace: lws.Namespace, UID: "leader-sts-uid"},
+	}
+	owned := func(pod *corev1.Pod) *corev1.Pod { return ownedByStatefulSet(pod, lws.Name, leaderSts.UID) }
+
+	// Pod 3 is stale and in the window but already terminating; it must be left alone
+	// (a finalizer keeps it visible to the fake client after deletion).
+	terminatingPod := owned(makeTestLeaderPod(lws.Name, lws.Namespace, 3, "rev-old", true))
+	terminatingPod.Finalizers = []string{"test.example.com/hold"}
+
+	// A pod with matching labels but a different controller must never be deleted.
+	decoyPod := ownedByStatefulSet(makeTestLeaderPod(lws.Name, lws.Namespace, 1, "rev-old", true), lws.Name, "other-owner-uid")
+	decoyPod.Name = "decoy"
+
+	client := fake.NewClientBuilder().WithObjects(
+		owned(makeTestLeaderPod(lws.Name, lws.Namespace, 0, "rev-old", true)), // below partition, kept
+		owned(makeTestLeaderPod(lws.Name, lws.Namespace, 1, "rev-old", true)), // stale and in window, deleted
+		owned(makeTestLeaderPod(lws.Name, lws.Namespace, 2, "rev-new", true)), // already updated, kept
+		terminatingPod,
+		owned(makeTestLeaderPod(lws.Name, lws.Namespace, 4, "rev-old", true)), // above replicas (scaling down), kept
+		decoyPod,
+	).Build()
+	if err := client.Delete(context.Background(), terminatingPod); err != nil {
+		t.Fatal(err)
+	}
+	reconciler := &LeaderWorkerSetReconciler{Client: client, Record: fakeEventRecorder{}}
+
+	if err := reconciler.deleteLeaderPodsForUpdate(context.Background(), lws, leaderSts, "rev-new", 1, 4); err != nil {
+		t.Fatalf("deleteLeaderPodsForUpdate() unexpected error: %v", err)
+	}
+
+	var podList corev1.PodList
+	if err := client.List(context.Background(), &podList); err != nil {
+		t.Fatal(err)
+	}
+	remaining := map[string]bool{}
+	for _, pod := range podList.Items {
+		remaining[pod.Name] = true
+	}
+	want := map[string]bool{"test-sample-0": true, "test-sample-2": true, "test-sample-3": true, "test-sample-4": true, "decoy": true}
+	if diff := cmp.Diff(want, remaining); diff != "" {
+		t.Errorf("unexpected remaining leader pods: %s", diff)
+	}
+}
+
+// Worker statefulset slots are derived from the immutable statefulset name; a foreign
+// statefulset with a colliding group-index label must not displace the legitimate entry
+// and flip its (ready) group to unavailable.
+func TestGetReplicaStatesIgnoresLabelCollidingStatefulSets(t *testing.T) {
+	lws := wrappers.BuildBasicLeaderWorkerSet("test-sample", "default").
+		Replica(2).
+		Size(2).
+		WorkerTemplateSpec(wrappers.MakeWorkerPodSpec()).Obj()
+	leaderSts := &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{Name: lws.Name, Namespace: lws.Namespace, UID: "leader-sts-uid"},
+	}
+
+	makeWorkerSts := func(groupIndex int, ownerUID types.UID) *appsv1.StatefulSet {
+		return &appsv1.StatefulSet{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      fmt.Sprintf("%s-%d", lws.Name, groupIndex),
+				Namespace: lws.Namespace,
+				Labels: map[string]string{
+					leaderworkerset.SetNameLabelKey:    lws.Name,
+					leaderworkerset.GroupIndexLabelKey: strconv.Itoa(groupIndex),
+					leaderworkerset.RevisionKey:        "rev-old",
+				},
+				OwnerReferences: []metav1.OwnerReference{{
+					APIVersion: "v1",
+					Kind:       "Pod",
+					Name:       fmt.Sprintf("%s-%d", lws.Name, groupIndex),
+					UID:        ownerUID,
+					Controller: ptr.To(true),
+				}},
+			},
+			Spec: appsv1.StatefulSetSpec{Replicas: ptr.To[int32](1)},
+			Status: appsv1.StatefulSetStatus{
+				AvailableReplicas: 1,
+				CurrentRevision:   "same",
+				UpdateRevision:    "same",
+			},
+		}
+	}
+
+	pod0 := ownedByStatefulSet(makeTestLeaderPod(lws.Name, lws.Namespace, 0, "rev-old", true), lws.Name, leaderSts.UID)
+	pod0.UID = "pod-0-uid"
+	pod1 := ownedByStatefulSet(makeTestLeaderPod(lws.Name, lws.Namespace, 1, "rev-old", true), lws.Name, leaderSts.UID)
+	pod1.UID = "pod-1-uid"
+
+	// The decoy carries group-index 0 but is not named like a worker statefulset of
+	// this lws; it sorts after the real one ("zzz-decoy" > "test-sample-0") and would
+	// win the slot if placement trusted the label.
+	decoy := makeWorkerSts(0, "unrelated-uid")
+	decoy.Name = "zzz-decoy"
+
+	client := fake.NewClientBuilder().WithObjects(
+		pod0, pod1,
+		makeWorkerSts(0, pod0.UID),
+		makeWorkerSts(1, pod1.UID),
+		decoy,
+	).Build()
+	reconciler := &LeaderWorkerSetReconciler{Client: client, Record: fakeEventRecorder{}}
+
+	states, _, err := reconciler.getReplicaStates(context.Background(), lws, leaderSts, 2, "rev-new")
+	if err != nil {
+		t.Fatalf("getReplicaStates() unexpected error: %v", err)
+	}
+	for idx, state := range states {
+		if !state.ready {
+			t.Errorf("states[%d].ready=false, want true", idx)
+		}
+	}
+}
+
+// The partition is monotonic, so groups that fail after it last moved do not raise it
+// again. The deleter must re-check availability itself: with maxUnavailable=1 and an
+// already-unavailable updated group, no ready group may be taken down, while a stale
+// group that is already unavailable is still replaced (deleting it costs nothing).
+func TestDeleteLeaderPodsForUpdateRespectsAvailabilityBudget(t *testing.T) {
+	lws := wrappers.BuildBasicLeaderWorkerSet("test-sample", "default").
+		Replica(4).
+		Size(1).
+		RolloutStrategy(leaderworkerset.RolloutStrategy{
+			Type: leaderworkerset.RollingUpdateStrategyType,
+			RollingUpdateConfiguration: &leaderworkerset.RollingUpdateConfiguration{
+				Partition:      ptr.To[int32](0),
+				MaxUnavailable: intstr.FromInt32(1),
+				MaxSurge:       intstr.FromInt32(0),
+			},
+		}).Obj()
+	leaderSts := &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{Name: lws.Name, Namespace: lws.Namespace, UID: "leader-sts-uid"},
+	}
+	owned := func(pod *corev1.Pod) *corev1.Pod { return ownedByStatefulSet(pod, lws.Name, leaderSts.UID) }
+
+	client := fake.NewClientBuilder().WithObjects(
+		owned(makeTestLeaderPod(lws.Name, lws.Namespace, 0, "rev-old", true)),  // below partition
+		owned(makeTestLeaderPod(lws.Name, lws.Namespace, 1, "rev-old", true)),  // stale, ready: kept, budget exhausted
+		owned(makeTestLeaderPod(lws.Name, lws.Namespace, 2, "rev-old", false)), // stale, unavailable: replaced for free
+		owned(makeTestLeaderPod(lws.Name, lws.Namespace, 3, "rev-new", false)), // updated but crashed: consumes the budget
+	).Build()
+	reconciler := &LeaderWorkerSetReconciler{Client: client, Record: fakeEventRecorder{}}
+
+	if err := reconciler.deleteLeaderPodsForUpdate(context.Background(), lws, leaderSts, "rev-new", 1, 4); err != nil {
+		t.Fatalf("deleteLeaderPodsForUpdate() unexpected error: %v", err)
+	}
+
+	var podList corev1.PodList
+	if err := client.List(context.Background(), &podList); err != nil {
+		t.Fatal(err)
+	}
+	remaining := map[string]bool{}
+	for _, pod := range podList.Items {
+		remaining[pod.Name] = true
+	}
+	want := map[string]bool{"test-sample-0": true, "test-sample-1": true, "test-sample-3": true}
+	if diff := cmp.Diff(want, remaining); diff != "" {
+		t.Errorf("unexpected remaining leader pods: %s", diff)
 	}
 }
 
