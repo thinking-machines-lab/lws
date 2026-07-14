@@ -758,22 +758,10 @@ var _ = ginkgo.Describe("LeaderWorkerSet controller", func() {
 				{
 					// Enable rollout-via-delete.
 					lwsUpdateFn: func(lws *leaderworkerset.LeaderWorkerSet) {
-						gomega.Eventually(func() error {
-							var fetched leaderworkerset.LeaderWorkerSet
-							if err := k8sClient.Get(ctx, types.NamespacedName{Name: lws.Name, Namespace: lws.Namespace}, &fetched); err != nil {
-								return err
-							}
-							fetched.Annotations[leaderworkerset.RolloutViaDeleteAnnotationKey] = "true"
-							return k8sClient.Update(ctx, &fetched)
-						}, testing.Timeout, testing.Interval).Should(gomega.Succeed())
+						testing.SetRolloutViaDelete(ctx, k8sClient, lws, true)
 					},
 					checkLWSState: func(lws *leaderworkerset.LeaderWorkerSet) {
-						gomega.Eventually(func(g gomega.Gomega) {
-							var sts appsv1.StatefulSet
-							g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: lws.Name, Namespace: lws.Namespace}, &sts)).To(gomega.Succeed())
-							g.Expect(sts.Spec.UpdateStrategy.Type).To(gomega.Equal(appsv1.OnDeleteStatefulSetStrategyType))
-							g.Expect(sts.Spec.UpdateStrategy.RollingUpdate).To(gomega.BeNil())
-						}, testing.Timeout, testing.Interval).Should(gomega.Succeed())
+						testing.ExpectLeaderStsUpdateStrategy(ctx, k8sClient, lws, appsv1.OnDeleteStatefulSetStrategyType)
 						testing.ExpectStatefulsetPartitionEqualTo(ctx, k8sClient, lws, 0)
 						// Pods are untouched and no new revision is created.
 						testing.ExpectLeaderWorkerSetAvailable(ctx, k8sClient, lws, "All replicas are ready")
@@ -784,25 +772,83 @@ var _ = ginkgo.Describe("LeaderWorkerSet controller", func() {
 				{
 					// Disable it again (the rollback operation).
 					lwsUpdateFn: func(lws *leaderworkerset.LeaderWorkerSet) {
-						gomega.Eventually(func() error {
-							var fetched leaderworkerset.LeaderWorkerSet
-							if err := k8sClient.Get(ctx, types.NamespacedName{Name: lws.Name, Namespace: lws.Namespace}, &fetched); err != nil {
-								return err
-							}
-							fetched.Annotations[leaderworkerset.RolloutViaDeleteAnnotationKey] = "false"
-							return k8sClient.Update(ctx, &fetched)
-						}, testing.Timeout, testing.Interval).Should(gomega.Succeed())
+						testing.SetRolloutViaDelete(ctx, k8sClient, lws, false)
 					},
 					checkLWSState: func(lws *leaderworkerset.LeaderWorkerSet) {
-						gomega.Eventually(func(g gomega.Gomega) {
-							var sts appsv1.StatefulSet
-							g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: lws.Name, Namespace: lws.Namespace}, &sts)).To(gomega.Succeed())
-							g.Expect(sts.Spec.UpdateStrategy.Type).To(gomega.Equal(appsv1.RollingUpdateStatefulSetStrategyType))
-							g.Expect(sts.Spec.UpdateStrategy.RollingUpdate).NotTo(gomega.BeNil())
-						}, testing.Timeout, testing.Interval).Should(gomega.Succeed())
+						testing.ExpectLeaderStsUpdateStrategy(ctx, k8sClient, lws, appsv1.RollingUpdateStatefulSetStrategyType)
 						testing.ExpectLeaderWorkerSetAvailable(ctx, k8sClient, lws, "All replicas are ready")
 						testing.ExpectLeaderWorkerSetStatusReplicas(ctx, k8sClient, lws, 2, 2)
 						testing.ExpectRevisions(ctx, k8sClient, lws, 1)
+					},
+				},
+			},
+		}),
+		// Disabling rollout-via-delete mid-rollout is the rollback-under-fire path: the
+		// partition must carry over to the statefulset's rollingUpdate config so the
+		// statefulset controller resumes from where the deleter stopped, and re-enabling
+		// must resume controller-driven deletes from the same partition.
+		ginkgo.Entry("toggling rollout-via-delete mid-rollout preserves the partition", &testCase{
+			makeLeaderWorkerSet: func(nsName string) *wrappers.LeaderWorkerSetWrapper {
+				return wrappers.BuildLeaderWorkerSet(nsName).Replica(4)
+			},
+			updates: []*update{
+				{
+					// Set lws to available condition.
+					lwsUpdateFn: func(lws *leaderworkerset.LeaderWorkerSet) {
+						testing.SetSuperPodToReady(ctx, k8sClient, lws, 4)
+					},
+					checkLWSState: func(lws *leaderworkerset.LeaderWorkerSet) {
+						testing.ExpectLeaderWorkerSetAvailable(ctx, k8sClient, lws, "All replicas are ready")
+						testing.ExpectLeaderStsUpdateStrategy(ctx, k8sClient, lws, appsv1.OnDeleteStatefulSetStrategyType)
+						testing.ExpectLeaderWorkerSetStatusReplicas(ctx, k8sClient, lws, 4, 4)
+					},
+				},
+				{
+					// Start a rolling update; group 3 is deleted for update.
+					lwsUpdateFn: func(lws *leaderworkerset.LeaderWorkerSet) {
+						testing.UpdateWorkerTemplate(ctx, k8sClient, lws)
+					},
+					checkLWSState: func(lws *leaderworkerset.LeaderWorkerSet) {
+						testing.ExpectStatefulsetPartitionEqualTo(ctx, k8sClient, lws, 3)
+						testing.ExpectLeaderWorkerSetStatusReplicas(ctx, k8sClient, lws, 3, 0)
+					},
+				},
+				{
+					// Roll back to statefulset-driven updates mid-rollout.
+					lwsUpdateFn: func(lws *leaderworkerset.LeaderWorkerSet) {
+						testing.SetRolloutViaDelete(ctx, k8sClient, lws, false)
+					},
+					checkLWSState: func(lws *leaderworkerset.LeaderWorkerSet) {
+						testing.ExpectLeaderStsUpdateStrategy(ctx, k8sClient, lws, appsv1.RollingUpdateStatefulSetStrategyType)
+						// The partition carries over into the rollingUpdate config (the
+						// validator cross-checks the field against the annotation), and the
+						// controller stops deleting pods: groups 0-2 stay ready and stale.
+						testing.ExpectStatefulsetPartitionEqualTo(ctx, k8sClient, lws, 3)
+						testing.ExpectLeaderWorkerSetStatusReplicas(ctx, k8sClient, lws, 3, 0)
+					},
+				},
+				{
+					// Re-enable and finish the rollout.
+					lwsUpdateFn: func(lws *leaderworkerset.LeaderWorkerSet) {
+						testing.SetRolloutViaDelete(ctx, k8sClient, lws, true)
+						testing.SetPodGroupToReady(ctx, k8sClient, lws.Name+"-3", lws)
+					},
+					checkLWSState: func(lws *leaderworkerset.LeaderWorkerSet) {
+						testing.ExpectLeaderStsUpdateStrategy(ctx, k8sClient, lws, appsv1.OnDeleteStatefulSetStrategyType)
+						// Deletes resume: group 2 enters the window once group 3 is ready.
+						testing.ExpectStatefulsetPartitionEqualTo(ctx, k8sClient, lws, 2)
+						testing.ExpectLeaderWorkerSetStatusReplicas(ctx, k8sClient, lws, 3, 1)
+					},
+				},
+				{
+					// Set all groups to ready.
+					lwsUpdateFn: func(lws *leaderworkerset.LeaderWorkerSet) {
+						testing.SetSuperPodToReady(ctx, k8sClient, lws, 4)
+					},
+					checkLWSState: func(lws *leaderworkerset.LeaderWorkerSet) {
+						testing.ExpectStatefulsetPartitionEqualTo(ctx, k8sClient, lws, 0)
+						testing.ExpectLeaderWorkerSetAvailable(ctx, k8sClient, lws, "All replicas are ready")
+						testing.ExpectLeaderWorkerSetStatusReplicas(ctx, k8sClient, lws, 4, 4)
 					},
 				},
 			},

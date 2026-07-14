@@ -646,6 +646,16 @@ func (r *LeaderWorkerSetReconciler) getReplicaStates(ctx context.Context, lws *l
 			continue
 		}
 
+		// The worker statefulset is controlled by its leader pod; require that link so
+		// a same-name replacement cannot contribute readiness for the group.
+		if ref := metav1.GetControllerOfNoCopy(&sortedSts[idx]); ref == nil || ref.UID != sortedPods[idx].UID {
+			states[idx] = replicaState{
+				ready:   false,
+				updated: false,
+			}
+			continue
+		}
+
 		workersUpdated := revisionutils.GetRevisionKey(&sortedSts[idx]) == revisionKey
 		// A terminating worker statefulset (its group is being torn down) can still
 		// report ready status; same reasoning as the terminating leader above.
